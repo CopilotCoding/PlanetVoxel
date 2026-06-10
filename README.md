@@ -98,3 +98,4 @@ is wrong again.
 - Requires a local server (not `file://`) because the game loads ES modules
   and fetches the marching cubes lookup tables.
 - All assets are generated/synthesized at runtime — no build tools needed.
+- https://github.com/Tsarpf/proced/blob/master/marching-cubes.js is where I found the marching cubes lookup tables.
