@@ -19,14 +19,25 @@ export function pushOutOfSolid(player, planet, up) {
   const tangentB = new THREE.Vector3().crossVectors(up, tangentA).normalize();
 
   // Bottom — single point at the feet (no ring). snapToGround owns
-  // resting-on-surface behaviour; this point just catches the player
-  // being shoved into solid ground from below/sideways.
-  resolvePointCollision(player, planet, up, player.position.clone(), 0);
+  // *vertical* resting-on-surface behaviour while grounded, so the foot
+  // point's near-vertical correction (pushDotUp > 0.5) is suppressed while
+  // grounded — applying both in the same frame stacked into a visible
+  // "teleport tick" on steep uphill slopes, where foot penetration crosses
+  // the 0.5 threshold fastest. But the foot point's *horizontal* correction
+  // (walking face-first into a steep wall, pushDotUp <= 0.5) is NOT handled
+  // by snapToGround at all (its probes only look straight down) — that case
+  // must still run while grounded, or the player sinks into steep faces.
+  resolvePointCollision(player, planet, up, player.position.clone(), 0, player.grounded);
 
   // Top — full ring, as before, for head/shoulder clearance against
-  // ceilings and overhangs.
+  // ceilings and overhangs. Only the on-axis center point is treated as a
+  // "ceiling" for the purposes of cancelling upward jetpack velocity (see
+  // resolvePointCollision) — the side ring points exist to catch walls and
+  // overhangs to the side, and a steep planet slope curving over the player
+  // reads the same way a low ceiling would, cancelling jetpack thrust and
+  // pinning the player at the base of the slope with no way to fly up it.
   const topCenter = player.position.clone().addScaledVector(up, COLLIDER_HEIGHT);
-  resolvePointCollision(player, planet, up, topCenter, COLLIDER_HEIGHT);
+  resolvePointCollision(player, planet, up, topCenter, COLLIDER_HEIGHT, false, true);
   for (let i = 0; i < COLLIDER_RING_POINTS; i++) {
     const angle = (i / COLLIDER_RING_POINTS) * Math.PI * 2;
     const offset = tangentA.clone().multiplyScalar(Math.cos(angle) * COLLIDER_RADIUS)
@@ -34,13 +45,27 @@ export function pushOutOfSolid(player, planet, up) {
     const ringPoint = topCenter.clone().add(offset);
     resolvePointCollision(player, planet, up, ringPoint, COLLIDER_HEIGHT);
   }
+
+  // Mid-body ring, halfway up the collider. The feet (height 0) and head
+  // ring (height COLLIDER_HEIGHT) leave a gap where a steep wall can press
+  // into the torso without either end detecting it — the player visibly
+  // sinks into the wall at chest height while feet and head stay clear.
+  const midHeight = COLLIDER_HEIGHT * 0.5;
+  const midCenter = player.position.clone().addScaledVector(up, midHeight);
+  for (let i = 0; i < COLLIDER_RING_POINTS; i++) {
+    const angle = (i / COLLIDER_RING_POINTS) * Math.PI * 2;
+    const offset = tangentA.clone().multiplyScalar(Math.cos(angle) * COLLIDER_RADIUS)
+      .addScaledVector(tangentB, Math.sin(angle) * COLLIDER_RADIUS);
+    const ringPoint = midCenter.clone().add(offset);
+    resolvePointCollision(player, planet, up, ringPoint, midHeight);
+  }
 }
 
 // Resolve a collision at `samplePoint`. If samplePoint is offset from
 // player.position by `offset` along `up` (i.e. it's the head check), the
 // computed push is applied to player.position directly so the whole player
 // (feet+head) moves together out of the ceiling.
-function resolvePointCollision(player, planet, up, samplePoint, offset) {
+function resolvePointCollision(player, planet, up, samplePoint, offset, suppressVerticalFoot = false, isCeilingPoint = false) {
   const pos = player.position;
   const d0 = planet.density(samplePoint.x, samplePoint.y, samplePoint.z);
   if (d0 <= ISO_LEVEL) return;
@@ -53,7 +78,7 @@ function resolvePointCollision(player, planet, up, samplePoint, offset) {
   // pushes up a hair, snapToGround pulls down a hair, repeat — a rapid,
   // tiny vibration on slopes. Only step in here for *real* penetration
   // (e.g. spawning inside terrain or getting shoved into a wall) —
-  // snapToGround handles all normal ground contact.
+  // snapToGround handles all normal vertical ground contact.
   if (offset === 0 && d0 - ISO_LEVEL < 0.5) return;
 
   // Near the planet's exact center, the density field d = (PLANET_RADIUS - r)
@@ -103,11 +128,18 @@ function resolvePointCollision(player, planet, up, samplePoint, offset) {
   // normal-direction push, so sliding off cliffs/peaks is preserved.
   const pushDotUp = up.x*px + up.y*py + up.z*pz;
   if (offset === 0 && pushDotUp > 0.5) {
-    // Damp this correction the same way snapToGround does. Without damping,
-    // once foot penetration crosses the 0.5 threshold above, this applies
-    // the FULL `fd` correction instantly — a visible teleport on steep
-    // uphill slopes where penetration can build up past 0.5 in a burst.
-    pos.addScaledVector(up, fd * 0.35);
+    // Near-vertical foot correction. While grounded, snapToGround already
+    // owns this every frame via its full-snap correction — applying both
+    // in the same frame stacked into a visible "teleport tick" on steep
+    // uphill slopes (where foot penetration crosses the 0.5 threshold
+    // fastest). Only apply here while airborne (e.g. landing from a fall
+    // shoved the foot point into the ground before snapToGround re-engages).
+    if (!suppressVerticalFoot) {
+      // Damp this correction the same way snapToGround does. Without damping,
+      // once foot penetration crosses the 0.5 threshold above, this applies
+      // the FULL `fd` correction instantly — a visible teleport.
+      pos.addScaledVector(up, fd * 0.35);
+    }
   } else {
     pos.x += px*fd; pos.y += py*fd; pos.z += pz*fd;
   }
@@ -118,7 +150,12 @@ function resolvePointCollision(player, planet, up, samplePoint, offset) {
   // For the head check, an upward push direction means a low ceiling —
   // also kill upward vertical velocity so the player stops rising into it.
   if (player._velVert < 0 && pushDotUp > 0.3) player._velVert = 0;
-  if (offset > 0 && player._velVert > 0 && pushDotUp < -0.3) player._velVert = 0;
+  // Cancelling upward (jetpack) velocity here is only correct for a true
+  // ceiling directly overhead (the on-axis top point). The side ring points
+  // also fire this same way for a steep wall/overhang beside the player,
+  // which would otherwise zero jetpack thrust every frame near such a wall
+  // and make it impossible to fly up it.
+  if (isCeilingPoint && player._velVert > 0 && pushDotUp < -0.3) player._velVert = 0;
 }
 
 // Snap player to the ground surface when grounded or falling.

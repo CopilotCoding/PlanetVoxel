@@ -11,6 +11,7 @@ import { UI } from './ui/ui.js';
 import { SaveManager, serializeGame, deserializeGame } from './save.js';
 import { setupScene, placeSun } from './game/sceneSetup.js';
 import { BuildingInteractions } from './game/interactions.js';
+import { Minimap } from './ui/minimap.js';
 
 async function loadMarchingCubes(onProgress) {
   onProgress('Loading marching cubes lookup tables...', 0.1);
@@ -79,6 +80,7 @@ async function startGame(worldMeta, save, saveManager) {
 
   const planet = new Planet(scene, seed);
   const camera = new Camera(renderer, signal);
+  const minimap = new Minimap(scene);
 
   // Restore terrain edits from save BEFORE generating chunks, so the planet
   // is built correctly the first time (no need to regenerate later).
@@ -323,6 +325,8 @@ async function startGame(worldMeta, save, saveManager) {
     camera.update(player.position, player.up);
     // Hide player mesh in first person
     player.mesh.visible = false;
+    // Minimap follows the player too — rotates so forward = up on the map
+    minimap.update(player.position, player.up, camera.getForwardDir());
 
     // Building placement, moving, belt connections, demolish/feed hints
     interactions.update(inputHandler);
@@ -336,6 +340,18 @@ async function startGame(worldMeta, save, saveManager) {
     inputHandler.consumeClick();
 
     renderer.render(scene, camera.camera);
+
+    // Minimap — rendered into a small viewport in the top-left corner via
+    // scissor test, after the main scene so it draws on top. setViewport/
+    // setScissor take CSS pixels (Three.js applies devicePixelRatio itself).
+    const mmSize = Math.min(180, window.innerWidth, window.innerHeight);
+    const mmMargin = 16;
+    renderer.setScissorTest(true);
+    renderer.setViewport(mmMargin, window.innerHeight - mmSize - mmMargin, mmSize, mmSize);
+    renderer.setScissor(mmMargin, window.innerHeight - mmSize - mmMargin, mmSize, mmSize);
+    renderer.render(scene, minimap.camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
   }
 
   loop();
