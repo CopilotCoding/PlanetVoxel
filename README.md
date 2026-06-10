@@ -51,12 +51,6 @@ before touching the related code:
    for *all* overrides (including mining) caused fall-through bugs on deep
    terrain — scoping it to only fully-flattened voxels was the fix.
 
-KNOWN ISSUES: 
-- Tiny teleporting upward steps when walking up steep hills.
-- UI is blocking other UI from being visible sometimes.
-
-PLANNED: To add a 3d minimap and fix the teleporting uphill tiny amounts.
-
 ## Running locally
 
 This is a static site — any local HTTP server works. From the project root:
