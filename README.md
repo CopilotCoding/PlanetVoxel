@@ -52,6 +52,7 @@ before touching the related code:
    terrain — scoping it to only fully-flattened voxels was the fix.
 
 KNOWN ISSUE: Tiny teleporting upward steps when walking up steep hills.
+PLANNED: To add a 3d minimap and fix the teleporting uphill tiny amounts.
 
 ## Running locally
 
