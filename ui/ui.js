@@ -3,6 +3,7 @@ import { TechTree } from './tech_tree.js';
 import { FactoryPanel } from './factory_panel.js';
 import { BuildMenu } from './build_menu.js';
 import { InventoryPanel } from './inventory_panel.js';
+import { BuildingPanel } from './building_panel.js';
 import { HUD } from './hud.js';
 
 export class UI {
@@ -17,6 +18,7 @@ export class UI {
     this.factoryPanel = new FactoryPanel(factory);
     this.buildMenu = new BuildMenu(economy);
     this.inventoryPanel = new InventoryPanel(inventory, economy, audio);
+    this.buildingPanel = new BuildingPanel(inventory, audio);
 
     this._openPanels = new Set();
     this._updateTimer = 0;
@@ -88,6 +90,12 @@ export class UI {
 
   closeAll() {
     for (const id of [...this._openPanels]) this.closePanel(id);
+    this.buildingPanel.close();
+  }
+
+  openBuildingPanel(building) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.buildingPanel.open(building);
   }
 
   _renderPanel(id) {
@@ -110,6 +118,7 @@ export class UI {
     if (this._updateTimer >= 1.0) {
       this._updateTimer = 0;
       for (const id of this._openPanels) this._renderPanel(id);
+      if (this.buildingPanel.isOpen) this.buildingPanel.render();
     }
   }
 

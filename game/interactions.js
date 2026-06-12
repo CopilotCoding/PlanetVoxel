@@ -151,7 +151,10 @@ export class BuildingInteractions {
         this.raycaster.setFromCamera(this.screenCenter, camera.camera);
         const lookedAt = factory.getBuildingAt(this.raycaster);
         if (lookedAt) {
-          ui.setPlacementHint(`${lookedAt.def.name}  [E] Feed inventory  [G] Move  [Right-click] Connect belt  [X] Demolish (+$${Math.floor(lookedAt.def.placeCost * 0.5)} refund)`);
+          ui.setPlacementHint(`${lookedAt.def.name}  [E] Feed inventory  [V] View/Empty  [G] Move  [Right-click] Connect belt  [X] Demolish (+$${Math.floor(lookedAt.def.placeCost * 0.5)} refund)`);
+          if (inputHandler.consumeKey('KeyV')) {
+            ui.openBuildingPanel(lookedAt);
+          }
           if (inputHandler.consumeKey('KeyG')) {
             this.movingBuilding = lookedAt;
             this.buildYaw = lookedAt.yaw;

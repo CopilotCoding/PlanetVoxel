@@ -97,6 +97,87 @@ export function mine(ctx, wx, wy, wz, radius, onCollect) {
   if (onCollect) onCollect(collected);
 }
 
+// Faster variant of mine(), used only by automated Extractor buildings (NOT
+// player mining — that stays on the original mine() above, untouched). Same
+// sphere-carve/collection behavior, but cuts the per-voxel cost roughly in
+// half by avoiding redundant work — extractors call this every ~0.6s,
+// continuously, for every extractor placed, so this steady-state cost adds
+// up fast with several extractors running at once.
+export function mineFast(ctx, wx, wy, wz, radius, onCollect) {
+  const { noiseSet, overrides, chunks } = ctx;
+  const collected = {};
+  const ir = Math.ceil(radius);
+  const affectedChunks = new Set();
+
+  for (let dx = -ir; dx <= ir; dx++)
+  for (let dy = -ir; dy <= ir; dy++)
+  for (let dz = -ir; dz <= ir; dz++) {
+    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if (dist > radius) continue;
+    const vx = Math.round(wx) + dx;
+    const vy = Math.round(wy) + dy;
+    const vz = Math.round(wz) + dz;
+    const key = `${vx},${vy},${vz}`;
+    const t = 1 - dist / radius;
+    const delta = t * t * 6.0;
+    const before = density(noiseSet, overrides, vx, vy, vz);
+    if (before > -30) {
+      if (before >= ISO_LEVEL - 0.5 && before - delta < ISO_LEVEL) {
+        const mat = getMaterial(noiseSet, vx, vy, vz);
+        collected[mat.name] = (collected[mat.name] || 0) + 1;
+      }
+      // If this voxel had a "flat shell" marker, `before` was computed via
+      // the shell formula (independent of mineOverrides) — the algebraic
+      // shortcut below doesn't apply for those, so fall back to a real
+      // density() recompute in that (rare) case only.
+      const hadShell = overrides.shellTargetR.has(key);
+      overrides.shellTargetR.delete(key);
+      const existing = overrides.mineOverrides.get(key) || 0;
+      overrides.mineOverrides.set(key, existing + delta);
+      // density() = baseNoiseDensity(...) - mineOverride, and `delta` is
+      // exactly what was just added to mineOverrides, so newDensity =
+      // before - delta without re-running the expensive multi-octave noise
+      // a second time.
+      const newDensity = hadShell ? density(noiseSet, overrides, vx, vy, vz) : before - delta;
+      const cx = Math.floor(vx / CHUNK_SIZE);
+      const cy = Math.floor(vy / CHUNK_SIZE);
+      const cz = Math.floor(vz / CHUNK_SIZE);
+      const N = CHUNK_SIZE + 1;
+      const lx0 = vx - cx * CHUNK_SIZE;
+      const ly0 = vy - cy * CHUNK_SIZE;
+      const lz0 = vz - cz * CHUNK_SIZE;
+      // Voxels strictly inside one chunk's cached grid only need that one
+      // chunk updated — only boundary voxels (local coord 0 or CHUNK_SIZE)
+      // also fall within a neighboring chunk's grid.
+      if (lx0 > 0 && lx0 < CHUNK_SIZE && ly0 > 0 && ly0 < CHUNK_SIZE && lz0 > 0 && lz0 < CHUNK_SIZE) {
+        const ck = chunkKeyOf(cx, cy, cz);
+        const cdata = chunks.get(ck);
+        if (cdata) cdata.densities[lz0 * N * N + ly0 * N + lx0] = newDensity;
+        affectedChunks.add(ck);
+      } else {
+        for (let ocx = cx-1; ocx <= cx; ocx++)
+        for (let ocy = cy-1; ocy <= cy; ocy++)
+        for (let ocz = cz-1; ocz <= cz; ocz++) {
+          const ck = chunkKeyOf(ocx, ocy, ocz);
+          const cdata = chunks.get(ck);
+          if (cdata) {
+            const lx = vx - ocx * CHUNK_SIZE;
+            const ly = vy - ocy * CHUNK_SIZE;
+            const lz = vz - ocz * CHUNK_SIZE;
+            if (lx >= 0 && lx < N && ly >= 0 && ly < N && lz >= 0 && lz < N) {
+              cdata.densities[lz * N * N + ly * N + lx] = newDensity;
+            }
+          }
+          affectedChunks.add(ck);
+        }
+      }
+    }
+  }
+
+  for (const k of affectedChunks) ctx.dirtyChunks.add(k);
+  if (onCollect) onCollect(collected);
+}
+
 // Raise terrain — within `radius` (horizontal/disc distance from the hit
 // point, measured along the local tangent plane), fills every voxel whose
 // radial distance from the planet center is below `planeR` up toward

@@ -38,6 +38,7 @@ canvas { display: block; }
 #tech-panel { top: 60px; left: 50%; transform: translateX(-50%); width: 420px; }
 #factory-panel { bottom: 20px; right: 20px; width: 360px; max-height: 50vh; }
 #build-menu { bottom: 20px; left: 50%; transform: translateX(-50%); width: 500px; }
+#building-panel { top: 60px; right: 20px; width: 320px; }
 .toolbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: all; z-index: 20; }
 .toolbar-btn { background: rgba(10,12,20,0.9); border: 1px solid rgba(100,150,255,0.3); color: #aac; padding: 8px 14px; font-size: 12px; font-family: 'Courier New', monospace; cursor: pointer; border-radius: 4px; transition: all 0.15s; letter-spacing: 1px; }
 .toolbar-btn:hover, .toolbar-btn.active { background: rgba(40,60,120,0.9); border-color: #88aaff; color: #fff; }
@@ -185,6 +186,10 @@ canvas { display: block; }
       <span class="panel-close" data-panel="build-menu">✕</span>
       <h2>Build Menu</h2>
       <div class="build-grid" id="build-grid"></div>
+    </div>
+    <div id="building-panel" class="panel">
+      <span class="panel-close" id="building-panel-close">✕</span>
+      <div id="building-panel-content"></div>
     </div>
   </div>
   <div class="toolbar">

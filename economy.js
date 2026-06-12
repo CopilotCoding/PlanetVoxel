@@ -49,8 +49,12 @@ export class Economy {
             spike = 2.0;
           }
         }
-        const price = Math.round(base * (1 + slow + noise) * spike);
-        this.prices[item.name] = Math.max(1, price);
+        // Round to 1 decimal place (not a whole integer) so near-worthless
+        // filler like Regolith/Rock (basePrice 0.1) keeps a small non-zero
+        // price instead of either rounding to 0 or being floored up to a
+        // minimum of 1 like every other item.
+        const price = Math.round(base * (1 + slow + noise) * spike * 10) / 10;
+        this.prices[item.name] = Math.max(0.1, price);
         const hist = this.history[item.name];
         hist.push(this.prices[item.name]);
         if (hist.length > HISTORY_LEN) hist.shift();

@@ -2,7 +2,7 @@ import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/thr
 import { PLANET_RADIUS, CHUNK_SIZE, ISO_LEVEL } from './constants.js';
 import { createNoiseSet, density as densityField, getMaterial as materialField, getBiome as biomeField } from './terrain/density.js';
 import { marchChunk, buildGeometry } from './terrain/mesher.js';
-import { mine, raise, lower, flatten } from './terrain/editor.js';
+import { mine, mineFast, raise, lower, flatten } from './terrain/editor.js';
 import { ChunkWorkerPool } from './terrain/workerPool.js';
 
 // Marching cubes lookup tables are loaded globally as edgeTable / triTable
@@ -105,11 +105,38 @@ export class Planet {
   // Plain-object snapshot of the override maps for postMessage to workers
   // (Maps clone fine via structured clone, but plain objects are smaller
   // and avoid relying on that across older browser versions).
-  _overridesPlain() {
-    return {
-      mineOverrides: Object.fromEntries(this._mineOverrides),
-      shellTargetR: Object.fromEntries(this._shellTargetR),
+  //
+  // If cx/cy/cz are given, only entries whose voxel falls within that
+  // chunk's density grid (+1 voxel margin, since marchChunk samples a
+  // (CHUNK_SIZE+1)^3 grid and edits can spill into a neighbouring chunk's
+  // grid at shared boundary voxels) are included. Sending the FULL global
+  // override maps on every remesh request was the bottleneck: with many
+  // extractors continuously mining, these maps grow to cover the whole
+  // planet, and postMessage has to structured-clone that entire blob for
+  // every dirty chunk — that's the multi-second visual remesh lag (the
+  // collider updates instantly because mineFast patches this.chunks
+  // in-place on the main thread, no postMessage involved).
+  _overridesPlain(cx = null, cy = null, cz = null) {
+    if (cx === null) {
+      return {
+        mineOverrides: Object.fromEntries(this._mineOverrides),
+        shellTargetR: Object.fromEntries(this._shellTargetR),
+      };
+    }
+    const lo0 = -1;
+    const hi = CHUNK_SIZE + 1;
+    const minX = cx * CHUNK_SIZE + lo0, maxX = cx * CHUNK_SIZE + hi;
+    const minY = cy * CHUNK_SIZE + lo0, maxY = cy * CHUNK_SIZE + hi;
+    const minZ = cz * CHUNK_SIZE + lo0, maxZ = cz * CHUNK_SIZE + hi;
+    const inRange = (key) => {
+      const [vx, vy, vz] = key.split(',').map(Number);
+      return vx >= minX && vx <= maxX && vy >= minY && vy <= maxY && vz >= minZ && vz <= maxZ;
     };
+    const mineOverrides = {};
+    for (const [key, val] of this._mineOverrides) if (inRange(key)) mineOverrides[key] = val;
+    const shellTargetR = {};
+    for (const [key, val] of this._shellTargetR) if (inRange(key)) shellTargetR[key] = val;
+    return { mineOverrides, shellTargetR };
   }
 
   // Scalar field: positive inside planet, negative outside
@@ -212,7 +239,11 @@ export class Planet {
       const [cx, cy, cz] = key.split(',').map(Number);
       this.dirtyChunks.delete(key);
       this._meshingInFlight.add(key);
-      const overridesObj = this._overridesPlain();
+      // Per-chunk filtered overrides — see _overridesPlain() comment. Sending
+      // only the edits relevant to this chunk (instead of every edit on the
+      // whole planet) is what fixes the visual remesh lag with many
+      // extractors continuously mining.
+      const overridesObj = this._overridesPlain(cx, cy, cz);
       this.workerPool.meshChunk(cx, cy, cz, overridesObj).then(result => {
         this._meshingInFlight.delete(key);
         // Keep the cached density/material arrays in sync so collision
@@ -268,6 +299,12 @@ export class Planet {
   // Deform terrain — mine a sphere at world position
   mine(wx, wy, wz, radius, onCollect) {
     return mine(this._editCtx, wx, wy, wz, radius, onCollect);
+  }
+
+  // Optimized mine variant used only by automated Extractor buildings —
+  // see terrain/editor.js mineFast() for details.
+  mineFast(wx, wy, wz, radius, onCollect) {
+    return mineFast(this._editCtx, wx, wy, wz, radius, onCollect);
   }
 
   // Raise terrain toward a constant-radius shell — see terrain/editor.js

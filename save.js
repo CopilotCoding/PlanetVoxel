@@ -116,6 +116,7 @@ export function serializeGame({ planet, player, inventory, economy, factory, sun
         yaw: b.yaw,
         inputBuffer: { ...b.inputBuffer },
         outputBuffer: { ...b.outputBuffer },
+        allowedItems: b.allowedItems ? Array.from(b.allowedItems) : null,
       })),
       belts: factory.belts.map(belt => ({
         fromId: belt.from.id,
@@ -159,6 +160,7 @@ export function deserializeGame(save, { player, inventory, economy, factory, cre
       if (!building) continue;
       building.inputBuffer = { ...b.inputBuffer };
       building.outputBuffer = { ...b.outputBuffer };
+      if (building.allowedItems && b.allowedItems) building.allowedItems = new Set(b.allowedItems);
       idMap.set(b.id, building);
     }
   }

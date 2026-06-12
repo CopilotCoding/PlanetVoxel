@@ -86,7 +86,7 @@ export function updateMining(player, dt, planet, camera, input, inventory, audio
         const mat = planet.getMaterialAt(hit.point.x, hit.point.y, hit.point.z);
 
         if (tool === 'mine') {
-          planet.mine(hit.point.x, hit.point.y, hit.point.z, MINE_RADIUS, (collected) => {
+          planet.mineFast(hit.point.x, hit.point.y, hit.point.z, MINE_RADIUS, (collected) => {
             for (const [name, count] of Object.entries(collected)) inventory.add(name, count);
           });
           audio.playMine(mat.name);

@@ -16,6 +16,7 @@ export class Factory {
     this.belts = [];
     this._pendingBeltFrom = null;
     this._ghostMesh = null;
+    this._beltRotation = 0;
   }
 
   update(dt) {
@@ -52,9 +53,30 @@ export class Factory {
       b.update(dt, this.economy, this.inventory);
     }
 
+    // Move items on every belt first (no pulling yet).
+    for (const belt of this.belts) belt.update(dt);
+
+    // Pulling is handled separately, grouped by source building: when one
+    // building feeds multiple outgoing belts, calling getFirstOutput()/
+    // takeOutput() independently from each belt's own update() let whichever
+    // belt happened to run first each frame always win the race for the
+    // source's output buffer (often just 1 item), permanently starving its
+    // sibling belts. Instead, for each source building, round-robin which of
+    // its outgoing belts gets first crack at the buffer this frame — over
+    // time every outgoing belt gets an equal share.
+    const beltsBySource = new Map();
     for (const belt of this.belts) {
-      belt.update(dt);
+      if (!beltsBySource.has(belt.from)) beltsBySource.set(belt.from, []);
+      beltsBySource.get(belt.from).push(belt);
     }
+    for (const outgoing of beltsBySource.values()) {
+      const n = outgoing.length;
+      for (let i = 0; i < n; i++) {
+        const belt = outgoing[(i + this._beltRotation) % n];
+        belt.tryPull();
+      }
+    }
+    this._beltRotation++;
 
     // Belt hum volume
     const runningBelts = this.belts.filter(b => b.items.length > 0).length;
@@ -90,18 +112,35 @@ export class Factory {
     const idx = this.buildings.indexOf(building);
     if (idx === -1) return;
     // Remove connected belts
+    const affectedSources = new Set();
     for (let i = this.belts.length - 1; i >= 0; i--) {
       if (this.belts[i].from === building || this.belts[i].to === building) {
+        affectedSources.add(this.belts[i].from);
         this.belts[i].dispose();
         this.belts.splice(i, 1);
       }
     }
     building.dispose();
     this.buildings.splice(idx, 1);
+    // Recompute hasOutgoingBelt for any building whose outgoing belt(s) may
+    // have just been removed (it could still have other outgoing belts).
+    for (const b of affectedSources) {
+      if (b === building) continue;
+      b.hasOutgoingBelt = this.belts.some(belt => belt.from === b);
+    }
   }
 
   connectBelts(fromBuilding, toBuilding, forcedTier = null) {
     if (fromBuilding === toBuilding) return null;
+    // A Market Terminal never produces output — its outputBuffer is always
+    // empty, so a belt running FROM a terminal would never move anything,
+    // which looks to the player like "the terminal won't accept items" (the
+    // belt the other direction never got created). If the player connects a
+    // terminal as the "from" end and the other building isn't also a
+    // terminal, flip the direction — that's the only sensible interpretation.
+    if (fromBuilding.type === 'terminal' && toBuilding.type !== 'terminal') {
+      [fromBuilding, toBuilding] = [toBuilding, fromBuilding];
+    }
     // Find best belt tier
     let tier = forcedTier;
     if (!tier) {
@@ -111,6 +150,7 @@ export class Factory {
     }
     const belt = new Belt(fromBuilding, toBuilding, this.scene, tier);
     this.belts.push(belt);
+    fromBuilding.hasOutgoingBelt = true;
     return belt;
   }
 

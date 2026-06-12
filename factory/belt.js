@@ -70,11 +70,70 @@ export class Belt {
     this.scene.add(this.mesh);
     this._curve = curve;
     this._curveLen = len;
+
+    this._buildDirectionArrows();
+  }
+
+  // Small glowing chevrons laid along the belt, each oriented to point
+  // toward `to` — a static visual cue for flow direction that's readable
+  // even when no items are currently on the belt (e.g. a starved machine).
+  _buildDirectionArrows() {
+    if (this._arrows) {
+      for (const a of this._arrows) {
+        this.scene.remove(a);
+        a.geometry.dispose();
+        a.material.dispose();
+      }
+    }
+    this._arrows = [];
+
+    const arrowGeo = new THREE.ConeGeometry(0.12, 0.32, 4);
+    const arrowMat = new THREE.MeshBasicMaterial({
+      color: 0x66ccff,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    // One arrow roughly every 2 units of belt length, but never more than a
+    // handful — long belts shouldn't spam the scene with cones.
+    const count = Math.max(1, Math.min(8, Math.round(this._curveLen / 2)));
+    for (let i = 1; i <= count; i++) {
+      const t = i / (count + 1);
+      const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+      this._arrows.push(arrow);
+      this.scene.add(arrow);
+    }
+    this._positionArrows(0);
+  }
+
+  // Place each arrow along the curve at progress (baseT + index offset),
+  // oriented along the curve's tangent (flow direction, from -> to) with its
+  // "up" aligned to the local surface normal so it lies flat against the
+  // belt like the items do.
+  _positionArrows(scrollOffset) {
+    const count = this._arrows.length;
+    for (let i = 0; i < count; i++) {
+      let t = (i + 1) / (count + 1) + scrollOffset;
+      t = ((t % 1) + 1) % 1; // wrap into [0,1)
+      const pos = this._curve.getPointAt(t);
+      const tangent = this._curve.getTangentAt(t).normalize();
+      const arrow = this._arrows[i];
+      arrow.position.copy(pos).addScaledVector(pos.clone().normalize(), 0.18);
+      // Cone's local +Y is its point; rotate it to align with the flow tangent.
+      arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+    }
   }
 
   update(dt) {
     const advanceDist = this.speed * dt;
     const advanceNorm = advanceDist / Math.max(1, this._curveLen);
+
+    // Slowly scroll the direction arrows along the belt (faster belts scroll
+    // faster) so the indicator reads as "flow" rather than a static decal.
+    this._arrowScroll = ((this._arrowScroll || 0) + advanceNorm * 0.5) % 1;
+    this._positionArrows(this._arrowScroll);
 
     // Move items along belt
     for (let i = this.items.length - 1; i >= 0; i--) {
@@ -93,7 +152,17 @@ export class Belt {
           item.dispose(this.scene);
           this.items.splice(i, 1);
         } else {
-          item.progress = 1.0 - 0.001; // stay at end, blocked
+          // `to` can't take it right now (buffer full / wrong type with no
+          // outgoing belt of its own) and there's no way to lane-change
+          // around it on a single-lane belt. Rather than freeze it here —
+          // which would cascade into a permanent jam blocking every other
+          // item type queued behind it — bounce it back into the source's
+          // output buffer. The belt is now fully clear; the source will
+          // re-offer it (possibly down a different belt) once something can
+          // accept it.
+          this.from.outputBuffer[item.name] = (this.from.outputBuffer[item.name] || 0) + 1;
+          item.dispose(this.scene);
+          this.items.splice(i, 1);
         }
       }
       // Update visual position
@@ -101,18 +170,31 @@ export class Belt {
       item.mesh.position.copy(pos);
     }
 
-    // Pull from source building
-    if (this.items.length === 0 || this.items[0].progress > 0.12) {
-      const outItem = this.from.getFirstOutput();
-      if (outItem) {
-        const took = this.from.takeOutput(outItem);
-        if (took) {
-          const newItem = new BeltItem(outItem, this.scene);
-          newItem.progress = 0;
-          this.items.unshift(newItem);
-        }
-      }
-    }
+  }
+
+  // True if this belt currently has room to accept a new item at its pickup
+  // end. Pulling itself is done separately via tryPull(), called by Factory
+  // in a round-robin pass across all of a source building's outgoing belts —
+  // calling getFirstOutput()/takeOutput() directly from update() let whichever
+  // belt's update() ran first each frame always win the race for a source's
+  // (often single-item) output buffer, permanently starving its sibling belts.
+  canPull() {
+    return this.items.length === 0 || this.items[0].progress > 0.12;
+  }
+
+  // Attempt to pull one item from `this.from` onto this belt. Returns true if
+  // an item was actually pulled (so the caller can stop offering this source's
+  // output to further belts this frame).
+  tryPull() {
+    if (!this.canPull()) return false;
+    const outItem = this.from.getFirstOutput(this.to);
+    if (!outItem) return false;
+    const took = this.from.takeOutput(outItem);
+    if (!took) return false;
+    const newItem = new BeltItem(outItem, this.scene);
+    newItem.progress = 0;
+    this.items.unshift(newItem);
+    return true;
   }
 
   setTier(tier) {
@@ -124,6 +206,15 @@ export class Belt {
     this.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
+    if (this._arrows) {
+      for (const a of this._arrows) {
+        this.scene.remove(a);
+        a.material.dispose();
+      }
+      // Geometry is shared across all arrows on this belt — dispose once.
+      if (this._arrows.length > 0) this._arrows[0].geometry.dispose();
+      this._arrows = [];
+    }
     for (const item of this.items) item.dispose(this.scene);
     this.items = [];
   }
