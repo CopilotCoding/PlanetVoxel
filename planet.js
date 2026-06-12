@@ -38,6 +38,7 @@ export class Planet {
         sunIntensity:    { value: 1.2 },
         lanternPosition: { value: new THREE.Vector3() },
         lanternIntensity:{ value: 0.0 },
+        lanternRange:    { value: 1.0 },
         ambientIntensity:{ value: 0.03 },
       },
       vertexShader: `
@@ -64,6 +65,7 @@ export class Planet {
         uniform float sunIntensity;
         uniform vec3  lanternPosition;
         uniform float lanternIntensity;
+        uniform float lanternRange;
         uniform float ambientIntensity;
         varying vec3  vColor;
         varying vec3  vNormal;
@@ -85,7 +87,8 @@ export class Planet {
           vec3  lDir    = lanternPosition - vWorldPos;
           float lDist   = length(lDir);
           float lDot    = max(0.0, dot(n, normalize(lDir)));
-          float lAtten  = lanternIntensity / (1.0 + lDist * lDist * 0.18);
+          float lScaled = lDist / lanternRange;
+          float lAtten  = lanternIntensity / (1.0 + lScaled * lScaled * 0.18);
           float lFill   = lAtten * 0.45; // angle-independent fill so front walls stay lit
           vec3  lanternContrib = (lDot * lAtten + lFill) * vec3(1.0, 0.80, 0.47);
           vec3  light = vec3(ambientIntensity) + sunContrib + lanternContrib;

@@ -64,7 +64,19 @@ export function updateParticles(player, dt) {
 
 // Mining + laser + terrain-tool dispatch. Called every frame from
 // Player.update(). `tool` is one of 'mine' | 'lower' | 'raise' | 'flatten'.
-export function updateMining(player, dt, planet, camera, input, inventory, audio, tool) {
+export function updateMining(player, dt, planet, camera, input, inventory, audio, tool, economy) {
+  // Mining radius/speed tech tree upgrades — radius stacks multiplicatively,
+  // speed upgrades shrink the cooldown between mine ticks.
+  let radiusMult = 1.0;
+  if (economy && economy.isUnlocked('mining_radius_1')) radiusMult *= 1.4;
+  if (economy && economy.isUnlocked('mining_radius_2')) radiusMult *= 1.8;
+  let speedMult = 1.0;
+  if (economy && economy.isUnlocked('mining_speed_1')) speedMult *= 1.4;
+  if (economy && economy.isUnlocked('mining_speed_2')) speedMult *= 1.8;
+  const mineRadius = MINE_RADIUS * radiusMult;
+  const toolRadius = TERRAIN_TOOL_RADIUS * radiusMult;
+  const mineRate = player._mineRate / speedMult;
+
   const ray = camera.getRayFromCenter();
   // Offset laser origin to bottom-right of camera so the beam is visible, not hidden inside the view
   const laserOrigin = ray.origin.clone()
@@ -82,11 +94,11 @@ export function updateMining(player, dt, planet, camera, input, inventory, audio
       updateLaser(player, laserOrigin, laserDir, player._laserCurrentLen);
 
       if (player._mineTimer <= 0) {
-        player._mineTimer = player._mineRate;
+        player._mineTimer = mineRate;
         const mat = planet.getMaterialAt(hit.point.x, hit.point.y, hit.point.z);
 
         if (tool === 'mine') {
-          planet.mineFast(hit.point.x, hit.point.y, hit.point.z, MINE_RADIUS, (collected) => {
+          planet.mineFast(hit.point.x, hit.point.y, hit.point.z, mineRadius, (collected) => {
             for (const [name, count] of Object.entries(collected)) inventory.add(name, count);
           });
           audio.playMine(mat.name);
@@ -94,7 +106,7 @@ export function updateMining(player, dt, planet, camera, input, inventory, audio
         } else if (tool === 'lower') {
           // Carves a perfectly radial column straight toward the planet
           // center — each tick lowers the target height a little further.
-          planet.lower(hit.point.x, hit.point.y, hit.point.z, TERRAIN_TOOL_RADIUS, (collected) => {
+          planet.lower(hit.point.x, hit.point.y, hit.point.z, toolRadius, (collected) => {
             for (const [name, count] of Object.entries(collected)) inventory.add(name, count);
           });
           audio.playMine(mat.name);
@@ -103,7 +115,7 @@ export function updateMining(player, dt, planet, camera, input, inventory, audio
           // Costs 1 Regolith per voxel raised — caps how much can be added
           // based on what the player is carrying. Builds a perfectly radial
           // column straight up from the planet center.
-          planet.raise(hit.point.x, hit.point.y, hit.point.z, TERRAIN_TOOL_RADIUS, (needed) => {
+          planet.raise(hit.point.x, hit.point.y, hit.point.z, toolRadius, (needed) => {
             const have = inventory.count('Regolith');
             const used = Math.min(needed, have);
             if (used > 0) inventory.remove('Regolith', used);
@@ -119,7 +131,7 @@ export function updateMining(player, dt, planet, camera, input, inventory, audio
           if (player._flattenAnchorR === null) {
             player._flattenAnchorR = Math.sqrt(hit.point.x*hit.point.x + hit.point.y*hit.point.y + hit.point.z*hit.point.z);
           }
-          planet.flatten(hit.point.x, hit.point.y, hit.point.z, TERRAIN_TOOL_RADIUS, (collected) => {
+          planet.flatten(hit.point.x, hit.point.y, hit.point.z, toolRadius, (collected) => {
             for (const [name, count] of Object.entries(collected)) inventory.add(name, count);
           }, player._flattenAnchorR);
           audio.playMine(mat.name);

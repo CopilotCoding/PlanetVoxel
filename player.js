@@ -86,7 +86,7 @@ export class Player {
       if (pos.length() < ATMOSPHERE_RADIUS) {
         this._velH.multiplyScalar(0.997);
       }
-      const maxFlySpeed = PLAYER_SPEED * 3.0;
+      const maxFlySpeed = PLAYER_SPEED * (economy && economy.isUnlocked('jetpack_wings') ? 4.0 : 3.0);
       if (this._velH.length() > maxFlySpeed) this._velH.normalize().multiplyScalar(maxFlySpeed);
     } else {
       if (this._velH.length() > PLAYER_SPEED) this._velH.normalize().multiplyScalar(PLAYER_SPEED);
@@ -110,8 +110,19 @@ export class Player {
     // floats freely through the core, however `up` happens to be oriented.
     const ZERO_G_RADIUS = 30;
     const zeroG = pos.length() < ZERO_G_RADIUS;
+    const wingsUnlocked = economy && economy.isUnlocked('jetpack_wings');
     if (this.grounded || buried || zeroG) {
       this._velVert = 0;
+    } else if (wingsUnlocked && pos.length() < ATMOSPHERE_RADIUS && this._velH.length() > PLAYER_SPEED * 0.5) {
+      // Glide Wings — passive lift while flying with enough forward speed:
+      // wings generate lift proportional to airspeed, cutting gravity's
+      // pull so the player glides forward and slowly descends instead of
+      // dropping straight down when fuel runs out or Shift is released.
+      // Only applies inside the atmosphere — wings need air to generate
+      // lift, so above the atmosphere ceiling gravity acts normally (and
+      // the existing drag-free orbit mechanics take over).
+      const speedFrac = Math.min(1, this._velH.length() / (PLAYER_SPEED * 4.0));
+      this._velVert -= GRAVITY * dt * (1 - speedFrac * 0.85);
     } else {
       this._velVert -= GRAVITY * dt;
     }
@@ -128,9 +139,33 @@ export class Player {
     if (jetKey && this.fuel > 0) {
       this.jetpackActive = true;
       this.fuel = Math.max(0, this.fuel - JETPACK_CONSUME_RATE * dt);
-      this._velVert += jetForce * dt;
+      if (wingsUnlocked && flying) {
+        // Glide Wings — thrust is mouse-aimed: split the camera's forward
+        // direction into a vertical component (along `up`) and a horizontal
+        // component (tangent plane), and accelerate both simultaneously.
+        // This lets the player point the camera anywhere and fly that way,
+        // like a jet, instead of always thrusting straight up.
+        // Use the true pitch-applied look direction (not the yaw-only `fwd`
+        // used for WASD movement) so aiming the mouse up/down actually
+        // changes vertical thrust.
+        const lookDir = camera.getLookDir();
+        const vertComp = lookDir.dot(up);
+        const horizFwd = lookDir.clone().projectOnPlane(up);
+        if (horizFwd.lengthSq() > 0.0001) horizFwd.normalize();
+        // Lift: cancel gravity so level flight holds altitude, then add
+        // thrust along the aim direction — aim up climbs, aim down dives,
+        // on top of the held baseline.
+        this._velVert += GRAVITY * dt;
+        this._velVert += vertComp * jetForce * dt;
+        this._velH.addScaledVector(horizFwd, jetForce * dt);
+        const maxFlySpeed = PLAYER_SPEED * 4.0;
+        if (this._velH.length() > maxFlySpeed) this._velH.normalize().multiplyScalar(maxFlySpeed);
+      } else {
+        this._velVert += jetForce * dt;
+      }
       const maxVert = jetForce * 1.5;
       this._velVert = Math.min(this._velVert, maxVert);
+      this._velVert = Math.max(this._velVert, -maxVert);
       this.grounded = false;
       audio.playJetpack(true);
     } else {
@@ -166,7 +201,7 @@ export class Player {
 
 
     // Mining + laser + terrain-tool dispatch
-    updateMining(this, dt, planet, camera, input, inventory, audio, tool);
+    updateMining(this, dt, planet, camera, input, inventory, audio, tool, economy);
   }
 
   get fuelFraction() { return this.fuel / (this._maxFuel || JETPACK_MAX_FUEL); }

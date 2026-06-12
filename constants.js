@@ -77,6 +77,13 @@ export const TECH_TREE = [
   { id: 'belt_ultra',   name: 'Ultra Belt',        tier: 4, cost: 30000,  requires: ['belt_fast'],  desc: '8x faster item transport' },
   { id: 'jetpack_fuel',   name: 'Jetpack Fuel Tank', tier: 2, cost: 1600,  requires: [],             desc: '2x jetpack fuel capacity & regen' },
   { id: 'jetpack_thrust', name: 'Jetpack Booster',  tier: 3, cost: 5600,  requires: ['jetpack_fuel'], desc: '1.6x jetpack thrust force' },
+  { id: 'jetpack_wings',  name: 'Glide Wings',      tier: 4, cost: 22000, requires: ['jetpack_thrust'], desc: 'Mouse-aimed flight — thrust where you look, glide like a jet' },
+  { id: 'lantern_1',      name: 'Lantern Lens I',   tier: 1, cost: 500,   requires: [],             desc: '+50% lantern range' },
+  { id: 'lantern_2',      name: 'Lantern Lens II',  tier: 3, cost: 6000,  requires: ['lantern_1'],  desc: '+100% lantern range (total 3x)' },
+  { id: 'mining_radius_1',name: 'Wide Drill Head',  tier: 2, cost: 2200,  requires: [],             desc: '+40% mining radius' },
+  { id: 'mining_radius_2',name: 'Mega Drill Head',  tier: 4, cost: 18000, requires: ['mining_radius_1'], desc: '+80% mining radius (total 2.2x)' },
+  { id: 'mining_speed_1', name: 'Rapid Drill Motor',tier: 2, cost: 2200,  requires: [],             desc: '40% faster mining' },
+  { id: 'mining_speed_2', name: 'Turbo Drill Motor',tier: 4, cost: 18000, requires: ['mining_speed_1'], desc: '80% faster mining (total 2.2x)' },
 ];
 
 export const BUILDING_DEFS = {

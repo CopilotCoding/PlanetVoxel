@@ -89,6 +89,7 @@ export class Camera {
 
   getForwardDir() { return this._fwd.clone(); }
   getRightDir()   { return this._right.clone(); }
+  getLookDir()    { return this._lookDir.clone(); }
 
   getRayFromCenter() {
     return {

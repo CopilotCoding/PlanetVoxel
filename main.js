@@ -12,6 +12,7 @@ import { SaveManager, serializeGame, deserializeGame } from './save.js';
 import { setupScene, placeSun } from './game/sceneSetup.js';
 import { BuildingInteractions } from './game/interactions.js';
 import { Minimap } from './ui/minimap.js';
+import { DevConsole } from './ui/devconsole.js';
 
 async function loadMarchingCubes(onProgress) {
   onProgress('Loading marching cubes lookup tables...', 0.1);
@@ -112,6 +113,7 @@ async function startGame(worldMeta, save, saveManager) {
 
   const factory = new Factory(scene, planet, economy, inventory, audio);
   const ui = new UI(economy, inventory, factory, player, audio, signal);
+  new DevConsole(economy, signal);
   ui.showSeed(seed);
 
   // Restore player/inventory/economy/factory/sun/tool state from save
@@ -283,6 +285,12 @@ async function startGame(worldMeta, save, saveManager) {
     const lanternTarget = lightLevel < 0.3 ? 2.5 : 0.0;
     lantern.intensity += (lanternTarget - lantern.intensity) * Math.min(1, dt * 3);
     lantern.position.copy(player.position).addScaledVector(player.up, 1.2);
+    // Lantern radius tech tree upgrades — scales both the PointLight's
+    // physical falloff distance and the planet shader's lAtten falloff.
+    let lanternRangeMult = 1.0;
+    if (economy.isUnlocked('lantern_1')) lanternRangeMult *= 1.5;
+    if (economy.isUnlocked('lantern_2')) lanternRangeMult *= 2.0;
+    lantern.distance = 18 * lanternRangeMult;
     // Drive planet shader uniforms — handles terrain lighting independently
     const u = planet.material.uniforms;
     u.sunPosition.value.copy(sunCoreMesh.position);
@@ -293,6 +301,7 @@ async function startGame(worldMeta, save, saveManager) {
     u.sunIntensity.value = 1.2 * startupFade;
     u.lanternPosition.value.copy(lantern.position);
     u.lanternIntensity.value = lantern.intensity * startupFade;
+    u.lanternRange.value = lanternRangeMult;
     u.ambientIntensity.value = 0.03 * startupFade;
 
     // Economy update
